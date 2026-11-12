@@ -133,6 +133,11 @@ details summary{cursor:pointer;color:var(--muted)}
     <p class="muted" style="margin:6px 0">Un código con número al final (D8, N9, S1…) cuenta como su código base. Bajada (BN/BD) <b>no</b> ocupa cama: la cama se usa hasta el día anterior a bajar. Quien tiene «Alojamiento en Chilloroya = SI» trabaja normal pero <b>no</b> ocupa cama en Constancia.</p>
     <div class="chips" id="codigos"></div>
   </details>
+  <details style="margin-top:8px" id="detChill">
+    <summary>Chilloroya permanente (todo el mes): <span id="chillEstado">carga el roster</span></summary>
+    <p class="muted" style="margin:6px 0">Las personas de esta lista duermen en la comunidad <b>todos los días del mes</b>: nunca cuentan cama, aunque en el roster la columna «Alojamiento en Chilloroya» diga NO. A ellas se suman las que tengan SI en esa columna. La lista se toma de la pestaña «Alojamiento en Chilloroya» si viene en el Excel. Si no viene, pega aquí los DNI (uno por línea o separados por coma); se guardan en este navegador.</p>
+    <textarea id="chillPegado" rows="4" style="width:100%;font:12px ui-monospace,Consolas,monospace;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:7px;padding:7px" placeholder="DNI de Chilloroya permanente"></textarea>
+  </details>
 </section>
 
 <div id="out" class="hidden" style="display:grid;gap:14px">
@@ -236,13 +241,34 @@ function leerRoster(wb){
         const codigos={}; diasCols.forEach(({dia,col})=>{const x=r[col]; codigos[dia]=x==null?"":String(x).trim().toUpperCase();});
         personas.push({fila:i+1,dni,sap:String(v(r,c.sap)),nombre:String(v(r,c.nombre)),pos:String(v(r,c.pos)),grupo:String(v(r,c.grupo)),
           genero:String(v(r,c.genero)),cg:String(v(r,c.cg)||"(sin contrato)"),cf:String(v(r,c.cf)),ag:String(v(r,c.ag)),af:String(v(r,c.af)),
-          chill:norm(v(r,c.chill)).startsWith("SI"),chillTxt:String(v(r,c.chill)||"NO"),codigos});
+          chillL:norm(v(r,c.chill)).startsWith("SI"),codigos});
       }
-      return {hoja:nombre,personas,diasCols,sinChill:c.chill<0};
+      return {hoja:nombre,personas,diasCols,sinChill:c.chill<0,listaChill:leerListaChill(wb)};
     }
   }
   throw new Error("no encontré una hoja con columna DNI y columnas de días 01…31");
 }
+
+// Pestaña «Alojamiento en Chilloroya» (lista fija de todo el mes), si viene en el mismo Excel.
+const limpiaDni=d=>{d=String(d??"").trim(); if(/^\d+$/.test(d)&&d.length<8) d=d.padStart(8,"0"); return d;};
+function leerListaChill(wb){
+  const nombre=wb.SheetNames.find(n=>/CHILLOROY|CHILLOROLL/.test(norm(n))); if(!nombre) return null;
+  const filas=XLSX.utils.sheet_to_json(wb.Sheets[nombre],{header:1,raw:true,defval:null});
+  for(let h=0;h<Math.min(filas.length,15);h++){
+    const i=(filas[h]||[]).map(norm).indexOf("DNI"); if(i<0) continue;
+    return {hoja:nombre,dnis:filas.slice(h+1).map(r=>limpiaDni((r||[])[i])).filter(d=>/^\d{6,}$/.test(d))};
+  }
+  return null;
+}
+const LS_CHILL="rosterCamas.chilloroya";
+try{ $("chillPegado").value=localStorage.getItem(LS_CHILL)||""; }catch(e){}
+$("chillPegado").addEventListener("input",()=>{ try{localStorage.setItem(LS_CHILL,$("chillPegado").value);}catch(e){} recalcular(); });
+function listaChill(){
+  const set=new Set((actual&&actual.listaChill?actual.listaChill.dnis:[]));
+  ($("chillPegado").value.match(/\d{6,}/g)||[]).forEach(d=>set.add(limpiaDni(d)));
+  return set;
+}
+function marcarChill(r,set){ if(r) r.personas.forEach(x=>{x.chillLista=set.has(x.dni); x.chill=x.chillL||x.chillLista;}); }
 
 // ---------- cálculo ----------
 const base=c=>c.replace(/\d+$/,"");
@@ -257,13 +283,18 @@ const fmtDia=(p,d)=>`${String(d).padStart(2,"0")}/${String(p.mes).padStart(2,"0"
 
 function recalcular(){
   if(!actual) return;
-  const p=periodo(), cama=codigosCama();
+  const p=periodo(), cama=codigosCama(), setChill=listaChill();
+  marcarChill(actual,setChill); marcarChill(anterior,setChill);
+  const dnisRoster=new Set(actual.personas.map(x=>x.dni));
+  if(!setChill.size) $("detChill").open=true;
+  $("chillEstado").textContent=`${setChill.size} en la lista`+(actual.listaChill?` (pestaña «${actual.listaChill.hoja}»)`:"")+` · ${actual.personas.filter(x=>x.chill).length} personas sin cama en total`;
   const ocupa=c=>c!==""&&cama.has(base(c));
   const contratos=[...new Set(actual.personas.map(x=>x.cg))].sort();
   const porContrato={}; contratos.forEach(k=>porContrato[k]=Object.fromEntries(p.dias.map(d=>[d,0])));
   const total={}, chill={}, porDia={};
   p.dias.forEach(d=>{total[d]=0;chill[d]=0;porDia[d]=[];});
-  const alertas={raros:[],vacios:[],dups:[]};
+  const alertas={raros:[],vacios:[],dups:[],chillFuera:[...setChill].filter(d=>!dnisRoster.has(d)),
+    chillCorrige:actual.personas.filter(x=>x.chillLista&&!x.chillL)};
   const cuenta={}; actual.personas.forEach(x=>cuenta[x.dni]=(cuenta[x.dni]||0)+1);
   Object.entries(cuenta).filter(([,n])=>n>1).forEach(([dni,n])=>alertas.dups.push({dni,n,nombre:actual.personas.find(x=>x.dni===dni).nombre}));
   const tieneDia=new Set(actual.diasCols.map(x=>x.dia));
@@ -282,7 +313,7 @@ function recalcular(){
   // DATA: una fila por persona por noche con cama (incluye Chilloroya marcado, como la pestaña DATA original)
   const data=[];
   for(const x of actual.personas) for(const d of p.dias){ const c=x.codigos[d];
-    if(tieneDia.has(d)&&ocupa(c)) data.push([x.dni,x.sap,x.nombre,x.pos,x.grupo,x.genero,x.cf,x.af,x.cg,x.ag,fecha(p,d),x.chillTxt,c]); }
+    if(tieneDia.has(d)&&ocupa(c)) data.push([x.dni,x.sap,x.nombre,x.pos,x.grupo,x.genero,x.cf,x.af,x.cg,x.ag,fecha(p,d),x.chill?"SI":"NO",c]); }
   calc={p,contratos,porContrato,total,chill,porDia,alertas,data,faltanDias:p.dias.filter(d=>!tieneDia.has(d))};
   $("out").classList.remove("hidden"); $("btnXlsx").disabled=false;
   if(diaSel==null||!p.dias.includes(diaSel)) diaSel=p.dias.reduce((a,d)=>total[d]>total[a]?d:a,p.dias[0]);
@@ -334,7 +365,7 @@ function pintarPersona(){
   const head=`<thead><tr><th>Nombre</th><th>DNI</th><th>Chilloroya</th>${p.dias.map(d=>`<th>${fmtDia(p,d)}</th>`).join("")}<th>Noches con cama</th></tr></thead>`;
   if(q.length<3){$("tPersona").innerHTML=head+`<tbody><tr><td colspan="99" class="muted">Escribe al menos 3 caracteres.</td></tr></tbody>`;return;}
   const l=actual.personas.filter(x=>x.dni.includes(q)||norm(x.nombre).includes(q)).slice(0,50);
-  $("tPersona").innerHTML=head+"<tbody>"+l.map(x=>`<tr><td>${esc(x.nombre)}</td><td>${esc(x.dni)}</td><td>${x.chill?"SI":"NO"}</td>${filaCodigos(x,p,cama)}<td>${x.chill?"0 (Chilloroya)":x.camas}</td></tr>`).join("")+"</tbody>";
+  $("tPersona").innerHTML=head+"<tbody>"+l.map(x=>`<tr><td>${esc(x.nombre)}</td><td>${esc(x.dni)}</td><td>${x.chillLista?"SI (permanente)":x.chill?"SI":"NO"}</td>${filaCodigos(x,p,cama)}<td>${x.chill?"0 (Chilloroya)":x.camas}</td></tr>`).join("")+"</tbody>";
 }
 $("q").addEventListener("input",()=>calc&&pintarPersona());
 
@@ -370,7 +401,10 @@ function pintarCambios(){
 }
 function pintarAlertas(){
   const {p,alertas,faltanDias}=calc, a=[];
-  if(actual.sinChill) a.push(`<div class="alert bad">No encontré la columna «Alojamiento en Chilloroya»: todos se cuentan con cama.</div>`);
+  if(actual.sinChill&&!listaChill().size) a.push(`<div class="alert bad">No encontré la columna «Alojamiento en Chilloroya» ni una lista de Chilloroya: todos se cuentan con cama.</div>`);
+  else if(!listaChill().size) a.push(`<div class="alert warn">No hay lista de Chilloroya permanente (no vino la pestaña en el Excel ni hay DNI pegados). Solo se usa la columna del roster.</div>`);
+  if(alertas.chillCorrige.length) a.push(`<div class="alert warn">Están en la lista de Chilloroya permanente pero el roster dice NO; se cuentan sin cama igual: ${alertas.chillCorrige.map(x=>`${esc(x.nombre)} (${esc(x.dni)})`).join(", ")}</div>`);
+  if(alertas.chillFuera.length) a.push(`<div class="alert warn">DNI de la lista de Chilloroya que no están en el roster: ${alertas.chillFuera.map(esc).join(", ")}</div>`);
   if(faltanDias.length) a.push(`<div class="alert bad">El roster no tiene columna para los días ${faltanDias.join(", ")}.</div>`);
   if(alertas.dups.length) a.push(`<div class="alert bad">DNI repetidos (se contarían dos veces): ${alertas.dups.map(d=>`${esc(d.dni)} ${esc(d.nombre)} (×${d.n})`).join("; ")}</div>`);
   const raros={}; alertas.raros.forEach(r=>(raros[r.c]=raros[r.c]||[]).push(r));

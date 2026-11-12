@@ -12,4 +12,8 @@ Uso:
 Reglas, sacadas de la DATA manual:
 - Ocupan cama: D, N, DF, NF, IN, S, DMP, QP (D8, N9, S1… cuentan como su código base). Se editan en la página.
 - La bajada (BN/BD) no ocupa cama: la cama se usa hasta el día anterior a bajar.
-- «Alojamiento en Chilloroya = SI»: trabaja normal pero no cuenta cama en Constancia.
+- Chilloroya no cuenta cama (trabajan normal, duermen en la comunidad):
+  - Lista permanente de todo el mes: la pestaña «Alojamiento en Chilloroya» del Excel, o DNI pegados en la página
+    (se guardan en ese navegador). Manda sobre la columna del roster.
+  - Además, quien tenga SI en la columna «Alojamiento en Chilloroya» del roster.
+- Los códigos numerados (D8, D9, D10…, V1…V14) salen de arrastrar la celda en Excel: se cuentan como su código base.
