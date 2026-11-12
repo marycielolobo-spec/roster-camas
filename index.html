@@ -111,14 +111,9 @@ details summary{cursor:pointer;color:var(--muted)}
 <section class="card">
   <div class="row">
     <div class="drop" id="drop1">
-      <b>1. Roster actual (obligatorio)</b>
+      <b>Roster</b>
       <input type="file" id="f1" accept=".xlsx,.xlsm,.xls">
       <small id="n1">Arrastra el Excel aquí o elígelo.</small>
-    </div>
-    <div class="drop" id="drop2">
-      <b>2. Roster anterior (opcional)</b>
-      <input type="file" id="f2" accept=".xlsx,.xlsm,.xls">
-      <small id="n2">Para ver qué cambió entre una versión y otra.</small>
     </div>
   </div>
   <div class="row" style="margin-top:12px">
@@ -154,8 +149,6 @@ details summary{cursor:pointer;color:var(--muted)}
   <section class="card">
     <div class="tabs" id="tabs">
       <button data-t="dia" class="act">Personas por rango de días</button>
-      <button data-t="persona">Buscar por DNI / nombre</button>
-      <button data-t="cambios">Cambios vs. roster anterior</button>
       <button data-t="alertas">Alertas</button>
       <button data-t="grupo">Por grupo y género</button>
     </div>
@@ -173,11 +166,6 @@ details summary{cursor:pointer;color:var(--muted)}
       <p id="rResumen" style="margin:10px 0 8px"></p>
       <div class="scroll"><table id="tRango"></table></div>
     </div>
-    <div id="pPersona" class="hidden">
-      <div class="row"><label>DNI o nombre <input id="q" placeholder="p. ej. 42809947" style="width:260px"></label></div>
-      <div class="scroll" style="margin-top:10px"><table id="tPersona"></table></div>
-    </div>
-    <div id="pCambios" class="hidden"></div>
     <div id="pAlertas" class="hidden"></div>
     <div id="pGrupo" class="hidden"><div class="scroll"><table id="tGrupo"></table></div></div>
   </section>
@@ -200,7 +188,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const norm=s=>String(s??"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim().toUpperCase();
 
-let actual=null, anterior=null, calc=null, diaSel=null;
+let actual=null, calc=null, diaSel=null;
 
 // ---------- configuración ----------
 MESES.forEach((m,i)=>$("mes").add(new Option(m,i+1)));
@@ -234,7 +222,7 @@ function enganchar(n,setter){
 enganchar(1,r=>{actual=r; const sel=$("agrupar"), prev=sel.value;
   sel.innerHTML=""; r.campos.forEach(n=>sel.add(new Option(n,n)));
   const pref=[prev,"CONTRATO GENERAL","PROYECTO","FRENTE","AREA GENERAL","AREA"].find(n=>n&&r.campos.includes(n));
-  if(pref) sel.value=pref;}); enganchar(2,r=>anterior=r);
+  if(pref) sel.value=pref;});
 
 // Busca la hoja ROSTER (o la primera con una fila de encabezado que tenga DNI y columnas de días).
 function leerRoster(wb){
@@ -306,7 +294,7 @@ const fmtDia=(p,d)=>`${String(d).padStart(2,"0")}/${String(p.mes).padStart(2,"0"
 function recalcular(){
   if(!actual) return;
   const p=periodo(), cama=codigosCama(), setChill=listaChill();
-  marcarChill(actual,setChill); marcarChill(anterior,setChill);
+  marcarChill(actual,setChill);
   const grp=$("agrupar").value; actual.personas.forEach(x=>x.cg=(grp&&x.campos[grp])||"(vacío)");
   const dnisRoster=new Set(actual.personas.map(x=>x.dni));
   if(!setChill.size) $("detChill").open=true;
@@ -342,7 +330,7 @@ function recalcular(){
   calc={p,contratos,porContrato,total,chill,porDia,sitio,alertas,data,faltanDias:p.dias.filter(d=>!tieneDia.has(d))};
   $("out").classList.remove("hidden"); $("btnXlsx").disabled=false;
   if(diaSel==null||!p.dias.includes(diaSel)) diaSel=p.dias.reduce((a,d)=>total[d]>total[a]?d:a,p.dias[0]);
-  pintarKpis(); pintarResumen(); pintarDia(); pintarPersona(); pintarCambios(); pintarAlertas(); pintarGrupo();
+  pintarKpis(); pintarResumen(); pintarDia(); pintarAlertas(); pintarGrupo();
 }
 
 // ---------- vistas ----------
@@ -412,51 +400,6 @@ $("btnRango").onclick=()=>{
   const dd=d=>String(d).padStart(2,"0")+String(p.mes).padStart(2,"0");
   guardarXlsx(wb,`Personal_${dd(dias[0])}_al_${dd(dias[dias.length-1])}.xlsx`);
 };
-function filaCodigos(x,p,cama,prev){
-  return p.dias.map(d=>{const c=x.codigos[d]??"", o=prev?prev.codigos[d]??"":null;
-    const dif=prev&&base(o)!==base(c);
-    const cls=dif?"cell-chg":(c&&cama.has(base(c))?"cell-bed":"");
-    return `<td class="code ${cls}" title="${dif?"antes: "+esc(o||"(vacío)"):""}">${esc(c)}</td>`}).join("");
-}
-function pintarPersona(){
-  const q=norm($("q").value), {p}=calc, cama=codigosCama();
-  const head=`<thead><tr><th>Nombre</th><th>DNI</th><th>Chilloroya</th>${p.dias.map(d=>`<th>${fmtDia(p,d)}</th>`).join("")}<th>Noches con cama</th></tr></thead>`;
-  if(q.length<3){$("tPersona").innerHTML=head+`<tbody><tr><td colspan="99" class="muted">Escribe al menos 3 caracteres.</td></tr></tbody>`;return;}
-  const l=actual.personas.filter(x=>x.dni.includes(q)||norm(x.nombre).includes(q)).slice(0,50);
-  $("tPersona").innerHTML=head+"<tbody>"+l.map(x=>`<tr><td>${esc(x.nombre)}</td><td>${esc(x.dni)}</td><td>${x.chillLista?"SI (permanente)":x.chill?"SI":"NO"}</td>${filaCodigos(x,p,cama)}<td>${x.chill?"0 (Chilloroya)":x.camas}</td></tr>`).join("")+"</tbody>";
-}
-$("q").addEventListener("input",()=>calc&&pintarPersona());
-
-function cambios(){
-  if(!anterior) return null;
-  const {p}=calc, cama=codigosCama(), ocupa=c=>c!==""&&cama.has(base(c));
-  const prev=new Map(anterior.personas.map(x=>[x.dni,x])), out=[];
-  for(const x of actual.personas){
-    const o=prev.get(x.dni);
-    const dias=p.dias.filter(d=>base(x.codigos[d]??"")!==base(o?o.codigos[d]??"":""));
-    const chillCambio=o&&o.chill!==x.chill;
-    if(!o||dias.length||chillCambio){
-      const n=x.chill?0:p.dias.filter(d=>ocupa(x.codigos[d]??"")).length;
-      const n0=!o||o.chill?0:p.dias.filter(d=>ocupa(o.codigos[d]??"")).length;
-      out.push({x,o,dias,tipo:!o?"Nuevo":chillCambio?"Cambio Chilloroya":"Cambio de roster",delta:n-n0});
-    }
-  }
-  const act=new Set(actual.personas.map(x=>x.dni));
-  for(const o of anterior.personas) if(!act.has(o.dni)){
-    const n0=o.chill?0:p.dias.filter(d=>ocupa(o.codigos[d]??"")).length; out.push({x:o,o,dias:[],tipo:"Ya no está",delta:-n0});
-  }
-  return out;
-}
-function pintarCambios(){
-  const box=$("pCambios");
-  if(!anterior){box.innerHTML=`<p class="muted">Carga el roster anterior (casilla 2) para ver quién cambió entre versiones dentro del periodo elegido. Así sabes qué filas de DATA se mueven sin revisar todo a mano.</p>`;return;}
-  const {p}=calc, cama=codigosCama(), l=cambios();
-  const neto=l.reduce((s,c)=>s+c.delta,0);
-  box.innerHTML=`<p style="margin:0 0 8px"><b>${l.length}</b> personas con cambios en el periodo. Efecto neto: <b>${neto>0?"+":""}${neto}</b> camas-noche. En amarillo, las celdas que cambiaron (pasa el cursor para ver el código anterior).</p>
-  <div class="scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Tipo</th><th>Δ camas</th>${p.dias.map(d=>`<th>${fmtDia(p,d)}</th>`).join("")}</tr></thead><tbody>
-  ${l.map(c=>`<tr><td>${esc(c.x.nombre)}</td><td>${esc(c.x.dni)}</td><td>${c.tipo}</td><td>${c.delta>0?"+":""}${c.delta}</td>${c.tipo==="Ya no está"?p.dias.map(()=>"<td></td>").join(""):filaCodigos(c.x,p,cama,c.o||{codigos:{}})}</tr>`).join("")}
-  </tbody></table></div>`;
-}
 function pintarAlertas(){
   const {p,alertas,faltanDias}=calc, a=[];
   if(actual.sinChill&&!listaChill().size) a.push(`<div class="alert bad">No encontré la columna «Alojamiento en Chilloroya» ni una lista de Chilloroya: todos se cuentan con cama.</div>`);
@@ -482,7 +425,7 @@ function pintarGrupo(){
 }
 function mostrarTab(t){
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("act",b.dataset.t===t));
-  ["dia","persona","cambios","alertas","grupo"].forEach(x=>$("p"+x[0].toUpperCase()+x.slice(1)).classList.toggle("hidden",x!==t));
+  ["dia","alertas","grupo"].forEach(x=>$("p"+x[0].toUpperCase()+x.slice(1)).classList.toggle("hidden",x!==t));
 }
 document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>mostrarTab(b.dataset.t));
 
@@ -505,9 +448,6 @@ $("btnXlsx").onclick=()=>{
   ws2["!cols"]=[{wch:10},{wch:10},{wch:36},{wch:36},{wch:20},{wch:8},{wch:26},{wch:26},{wch:26},{wch:26},{wch:12},{wch:10},{wch:8}];
   ws2["!autofilter"]={ref:"A1:M"+(data.length+1)};
   XLSX.utils.book_append_sheet(wb,ws2,"DATA");
-  const l=cambios();
-  if(l){ XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([["DNI","APELLIDOS Y NOMBRES","TIPO","DELTA CAMAS",...p.dias.map(d=>fmtDia(p,d))],
-    ...l.map(c=>[c.x.dni,c.x.nombre,c.tipo,c.delta,...p.dias.map(d=>{const a=c.tipo==="Ya no está"?"":c.x.codigos[d]??"", o=c.o?c.o.codigos[d]??"":""; return base(a)===base(o)?a:`${o||"·"}→${a||"·"}`;})])]),"CAMBIOS"); }
   const hoy=new Date(), tag=`${hoy.getFullYear()}${String(hoy.getMonth()+1).padStart(2,"0")}${String(hoy.getDate()).padStart(2,"0")}_${String(hoy.getHours()).padStart(2,"0")}${String(hoy.getMinutes()).padStart(2,"0")}`;
   guardarXlsx(wb,`Camas_Roster_${tag}.xlsx`);
 };

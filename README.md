@@ -6,9 +6,9 @@ de Excel (SheetJS) va incrustada en el archivo, y el Excel no se sube a ningún 
 
 Uso:
 1. Cargar el roster actual (hoja ROSTER, el mismo que alimenta el dashboard).
-2. (Opcional) Cargar el roster anterior para ver solo lo que cambió.
+2. Pegar en «Chilloroya permanente» los DNI de quienes duermen en Chilloroya (si el Excel no trae esa pestaña).
 3. «Personas por rango de días»: quiénes estarán en sitio entre dos fechas (con cama o en Chilloroya), descargable en Excel.
-4. Revisar las camas por día contra la meta (318 por defecto) y descargar el Excel con las hojas RESUMEN, DATA y CAMBIOS.
+4. Revisar las camas por día contra la meta (318 por defecto) y descargar el Excel con las hojas RESUMEN y DATA.
 
 Reglas, sacadas de la DATA manual:
 - Ocupan cama: D, N, DF, NF, IN, S, DMP, QP (D8, N9, S1… cuentan como su código base). Se editan en la página.
