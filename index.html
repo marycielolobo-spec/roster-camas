@@ -79,6 +79,7 @@ thead th.day{cursor:pointer}
 thead th.day:hover{color:var(--accent)}
 tr.total td{font-weight:700}
 tr.meta td{color:var(--muted)}
+#tRango td:nth-child(-n+5),#tRango th:nth-child(-n+5){text-align:left}
 td.over{background:var(--bad-soft);color:var(--bad);font-weight:700}
 td.under{color:var(--ok)}
 td.sel,th.sel{outline:2px solid var(--accent);outline-offset:-2px}
@@ -146,19 +147,32 @@ details summary{cursor:pointer;color:var(--muted)}
 
   <section class="card">
     <h2>Camas ocupadas por día <span class="muted" style="font-weight:400">(sin Chilloroya)</span></h2>
-    <p class="muted" style="margin:0 0 8px">Haz clic en un día para ver quiénes ocupan cama.</p>
+    <p class="muted" style="margin:0 0 8px">Haz clic en un día para ver quiénes estarán ese día (abajo puedes elegir un rango de días).</p>
     <div class="scroll"><table id="tResumen"></table></div>
   </section>
 
   <section class="card">
     <div class="tabs" id="tabs">
-      <button data-t="dia" class="act">Personas por día</button>
+      <button data-t="dia" class="act">Personas por rango de días</button>
       <button data-t="persona">Buscar por DNI / nombre</button>
       <button data-t="cambios">Cambios vs. roster anterior</button>
       <button data-t="alertas">Alertas</button>
       <button data-t="grupo">Por grupo y género</button>
     </div>
-    <div id="pDia"></div>
+    <div id="pDia">
+      <div class="row">
+        <label>Del día <select id="r1"></select></label>
+        <label>Al día <select id="r2"></select></label>
+        <label>Mostrar <select id="rQuien">
+          <option value="todos">Todos en sitio (con cama + Chilloroya)</option>
+          <option value="cama">Solo con cama en Constancia</option>
+          <option value="chill">Solo Chilloroya</option></select></label>
+        <label>Filtrar <input id="rFiltro" placeholder="nombre, DNI, grupo…" style="width:200px"></label>
+        <button id="btnRango">Descargar esta lista en Excel</button>
+      </div>
+      <p id="rResumen" style="margin:10px 0 8px"></p>
+      <div class="scroll"><table id="tRango"></table></div>
+    </div>
     <div id="pPersona" class="hidden">
       <div class="row"><label>DNI o nombre <input id="q" placeholder="p. ej. 42809947" style="width:260px"></label></div>
       <div class="scroll" style="margin-top:10px"><table id="tPersona"></table></div>
@@ -301,7 +315,8 @@ function recalcular(){
   const contratos=[...new Set(actual.personas.map(x=>x.cg))].sort();
   const porContrato={}; contratos.forEach(k=>porContrato[k]=Object.fromEntries(p.dias.map(d=>[d,0])));
   const total={}, chill={}, porDia={};
-  p.dias.forEach(d=>{total[d]=0;chill[d]=0;porDia[d]=[];});
+  const sitio={};
+  p.dias.forEach(d=>{total[d]=0;chill[d]=0;porDia[d]=[];sitio[d]=[];});
   const alertas={raros:[],vacios:[],dups:[],chillFuera:[...setChill].filter(d=>!dnisRoster.has(d)),
     chillCorrige:actual.sinChill?[]:actual.personas.filter(x=>x.chillLista&&!x.chillL)};
   const cuenta={}; actual.personas.forEach(x=>cuenta[x.dni]=(cuenta[x.dni]||0)+1);
@@ -315,6 +330,7 @@ function recalcular(){
       if(c==="") alertas.vacios.push({x,d});
       else if(!CONOCIDOS.has(base(c))) alertas.raros.push({x,d,c});
       if(!ocupa(c)) continue;
+      sitio[d].push(x);
       if(x.chill){ chill[d]++; continue; }
       total[d]++; porContrato[x.cg][d]++; x.camas++; porDia[d].push(x);
     }
@@ -323,7 +339,7 @@ function recalcular(){
   const data=[];
   for(const x of actual.personas) for(const d of p.dias){ const c=x.codigos[d];
     if(tieneDia.has(d)&&ocupa(c)) data.push([x.dni,x.sap,x.nombre,x.pos,x.grupo,x.genero,x.cf,x.af,x.cgOrig||x.cg,x.ag,fecha(p,d),x.chill?"SI":"NO",c]); }
-  calc={p,contratos,porContrato,total,chill,porDia,alertas,data,faltanDias:p.dias.filter(d=>!tieneDia.has(d))};
+  calc={p,contratos,porContrato,total,chill,porDia,sitio,alertas,data,faltanDias:p.dias.filter(d=>!tieneDia.has(d))};
   $("out").classList.remove("hidden"); $("btnXlsx").disabled=false;
   if(diaSel==null||!p.dias.includes(diaSel)) diaSel=p.dias.reduce((a,d)=>total[d]>total[a]?d:a,p.dias[0]);
   pintarKpis(); pintarResumen(); pintarDia(); pintarPersona(); pintarCambios(); pintarAlertas(); pintarGrupo();
@@ -353,18 +369,49 @@ function pintarResumen(){
   h+=`<tr class="total"><td>Total camas</td>${p.dias.map(d=>`<td class="${total[d]>p.meta?"over":"under"} ${d===diaSel?"sel":""}">${total[d]}</td>`).join("")}<td>${st}</td></tr>`;
   h+=`<tr class="meta"><td>Meta</td>${p.dias.map(()=>`<td>${p.meta}</td>`).join("")}<td></td></tr>`;
   h+=`<tr><td>Ajuste (camas − meta)</td>${p.dias.map(d=>{const a=total[d]-p.meta;return `<td class="${a>0?"over":"under"}">${a>0?"+":""}${a}</td>`}).join("")}<td></td></tr>`;
-  h+=`<tr class="meta"><td>Chilloroya (trabajan, sin cama)</td>${p.dias.map(d=>`<td>${chill[d]}</td>`).join("")}<td></td></tr>`;
+  h+=`<tr class="meta"><td>Chilloroya (trabajan, sin cama)</td>${p.dias.map(d=>`<td>${chill[d]}</td>`).join("")}<td>${p.dias.reduce((a,d)=>a+chill[d],0)}</td></tr>`;
+  h+=`<tr class="total"><td>Total personal en sitio</td>${p.dias.map(d=>`<td>${total[d]+chill[d]}</td>`).join("")}<td>${p.dias.reduce((a,d)=>a+total[d]+chill[d],0)}</td></tr>`;
   $("tResumen").innerHTML=h+"</tbody>";
-  $("tResumen").querySelectorAll("th.day").forEach(t=>t.onclick=()=>{diaSel=+t.dataset.d;pintarResumen();pintarDia();mostrarTab("dia");});
+  $("tResumen").querySelectorAll("th.day").forEach(t=>t.onclick=()=>{diaSel=+t.dataset.d;rango=[diaSel,diaSel];pintarResumen();pintarDia();mostrarTab("dia");});
+}
+let rango=null;
+function personasRango(){
+  const {p,sitio}=calc, [d1,d2]=rango, dias=p.dias.filter(d=>d>=d1&&d<=d2), quien=$("rQuien").value, q=norm($("rFiltro").value);
+  const set=new Set(); dias.forEach(d=>sitio[d].forEach(x=>set.add(x)));
+  let l=[...set].filter(x=>quien==="todos"||(quien==="chill")===x.chill);
+  if(q) l=l.filter(x=>norm(x.nombre+" "+x.dni+" "+x.cg+" "+x.pos).includes(q));
+  l.sort((a,b)=>a.cg.localeCompare(b.cg)||a.nombre.localeCompare(b.nombre));
+  const cama=codigosCama(), en=(x,d)=>{const c=x.codigos[d]||""; return c!==""&&cama.has(base(c));};
+  return {dias,l,en};
 }
 function pintarDia(){
-  const {p,porDia,total}=calc, l=[...porDia[diaSel]].sort((a,b)=>a.cg.localeCompare(b.cg)||a.nombre.localeCompare(b.nombre));
-  const ma=diaSel+1, sale=l.filter(x=>{const c=x.codigos[ma]; return c!==undefined&&!codigosCama().has(base(c||""));});
-  $("pDia").innerHTML=`<p style="margin:0 0 8px"><b>${fmtDia(p,diaSel)}</b>: ${total[diaSel]} personas con cama (meta ${p.meta}). ${sale.length?`De ellas, <b>${sale.length}</b> ya no ocupan cama al día siguiente (bajan).`:""}</p>
-  <div class="scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>${esc(titGrupo())}</th><th>Posición</th><th>Código</th><th>Día siguiente</th></tr></thead><tbody>
-  ${l.map(x=>`<tr><td>${esc(x.nombre)}</td><td>${esc(x.dni)}</td><td>${esc(x.cg)}</td><td>${esc(x.pos)}</td><td class="code">${esc(x.codigos[diaSel])}</td><td class="code">${esc(x.codigos[ma]??"")}</td></tr>`).join("")}
-  </tbody></table></div>`;
+  const {p}=calc;
+  if(!rango||!p.dias.includes(rango[0])||!p.dias.includes(rango[1])) rango=[diaSel,diaSel];
+  for(const [id,v] of [["r1",rango[0]],["r2",rango[1]]]){ const sel=$(id);
+    if(sel.options.length!==p.dias.length||+sel.options[0].value!==p.dias[0]){ sel.innerHTML=""; p.dias.forEach(d=>sel.add(new Option(fmtDia(p,d),d))); }
+    sel.value=v; }
+  const {dias,l,en}=personasRango();
+  const porDiaCuenta=dias.map(d=>l.filter(x=>en(x,d)).length);
+  $("rResumen").innerHTML=`<b>${l.length}</b> personas distintas estarán en sitio al menos un día entre el <b>${fmtDia(p,dias[0])}</b> y el <b>${fmtDia(p,dias[dias.length-1])}</b>.`+
+    (dias.length>1?` <span class="muted">Por día: ${dias.map((d,i)=>fmtDia(p,d)+" → "+porDiaCuenta[i]).join(" · ")}</span>`:"");
+  $("tRango").innerHTML=`<thead><tr><th>Nombre</th><th>DNI</th><th>${esc(titGrupo())}</th><th>Posición</th><th>Duerme en</th>${dias.map(d=>`<th>${fmtDia(p,d)}</th>`).join("")}<th>Días en sitio</th></tr></thead><tbody>`+
+    l.map(x=>`<tr><td>${esc(x.nombre)}</td><td>${esc(x.dni)}</td><td>${esc(x.cg)}</td><td>${esc(x.pos)}</td><td>${x.chill?"Chilloroya":"Constancia"}</td>${dias.map(d=>`<td class="code ${en(x,d)?"cell-bed":""}">${esc(x.codigos[d]||"")}</td>`).join("")}<td>${dias.filter(d=>en(x,d)).length}</td></tr>`).join("")+"</tbody>";
 }
+["r1","r2"].forEach(id=>$(id).addEventListener("change",()=>{let a=+$("r1").value,b=+$("r2").value; if(b<a)[a,b]=[b,a]; rango=[a,b]; pintarDia();}));
+["rQuien","rFiltro"].forEach(id=>$(id).addEventListener("input",()=>calc&&pintarDia()));
+$("btnRango").onclick=()=>{
+  const {p}=calc, {dias,l,en}=personasRango(), wb=XLSX.utils.book_new();
+  const aoa=[["DNI","APELLIDOS Y NOMBRES",titGrupo().toUpperCase(),"POSICION","DUERME EN",...dias.map(d=>fecha(p,d)),"DIAS EN SITIO"],
+    ...l.map(x=>[x.dni,x.nombre,x.cg,x.pos,x.chill?"Chilloroya":"Constancia",...dias.map(d=>x.codigos[d]||""),dias.filter(d=>en(x,d)).length]),
+    [],["TOTAL EN SITIO POR DÍA","","","","",...dias.map(d=>l.filter(x=>en(x,d)).length)]];
+  const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
+  dias.forEach((_,i)=>{const c=ws[XLSX.utils.encode_cell({r:0,c:5+i})]; if(c) c.z="dd/mm";});
+  ws["!cols"]=[{wch:10},{wch:36},{wch:24},{wch:34},{wch:11},...dias.map(()=>({wch:7})),{wch:12}];
+  ws["!autofilter"]={ref:"A1:"+XLSX.utils.encode_cell({r:l.length,c:5+dias.length})};
+  XLSX.utils.book_append_sheet(wb,ws,"PERSONAL");
+  const dd=d=>String(d).padStart(2,"0")+String(p.mes).padStart(2,"0");
+  guardarXlsx(wb,`Personal_${dd(dias[0])}_al_${dd(dias[dias.length-1])}.xlsx`);
+};
 function filaCodigos(x,p,cama,prev){
   return p.dias.map(d=>{const c=x.codigos[d]??"", o=prev?prev.codigos[d]??"":null;
     const dif=prev&&base(o)!==base(c);
@@ -448,7 +495,8 @@ $("btnXlsx").onclick=()=>{
   res.push(["Total camas",...p.dias.map(d=>total[d]),p.dias.reduce((a,d)=>a+total[d],0)]);
   res.push(["META",...p.dias.map(()=>p.meta)]);
   res.push(["AJUSTE (camas − meta)",...p.dias.map(d=>total[d]-p.meta)]);
-  res.push(["Chilloroya (trabajan, sin cama)",...p.dias.map(d=>chill[d])]);
+  res.push(["Chilloroya (trabajan, sin cama)",...p.dias.map(d=>chill[d]),p.dias.reduce((a,d)=>a+chill[d],0)]);
+  res.push(["Total personal en sitio",...p.dias.map(d=>total[d]+chill[d]),p.dias.reduce((a,d)=>a+total[d]+chill[d],0)]);
   const ws1=XLSX.utils.aoa_to_sheet(res,{cellDates:true}); ws1["!cols"]=[{wch:34},...p.dias.map(()=>({wch:8}))];
   fechas.forEach((_,i)=>{const c=ws1[XLSX.utils.encode_cell({r:2,c:i+1})]; if(c) c.z="dd/mm";});
   XLSX.utils.book_append_sheet(wb,ws1,"RESUMEN");
@@ -461,7 +509,9 @@ $("btnXlsx").onclick=()=>{
   if(l){ XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([["DNI","APELLIDOS Y NOMBRES","TIPO","DELTA CAMAS",...p.dias.map(d=>fmtDia(p,d))],
     ...l.map(c=>[c.x.dni,c.x.nombre,c.tipo,c.delta,...p.dias.map(d=>{const a=c.tipo==="Ya no está"?"":c.x.codigos[d]??"", o=c.o?c.o.codigos[d]??"":""; return base(a)===base(o)?a:`${o||"·"}→${a||"·"}`;})])]),"CAMBIOS"); }
   const hoy=new Date(), tag=`${hoy.getFullYear()}${String(hoy.getMonth()+1).padStart(2,"0")}${String(hoy.getDate()).padStart(2,"0")}_${String(hoy.getHours()).padStart(2,"0")}${String(hoy.getMinutes()).padStart(2,"0")}`;
-  const nombre=`Camas_Roster_${tag}.xlsx`;
+  guardarXlsx(wb,`Camas_Roster_${tag}.xlsx`);
+};
+function guardarXlsx(wb,nombre){
   if(descargas){
     const buf=XLSX.write(wb,{type:"array",bookType:"xlsx"});
     descargas.save({filename:nombre,data:new Blob([buf])}).catch(e=>{
