@@ -126,11 +126,12 @@ details summary{cursor:pointer;color:var(--muted)}
     <label>Desde día <input type="number" id="desde" value="10" min="1" max="31"></label>
     <label>Hasta día <input type="number" id="hasta" value="30" min="1" max="31"></label>
     <label>Meta de camas <input type="number" id="meta" value="318"></label>
+    <label>Agrupar por <select id="agrupar"></select></label>
     <button class="primary" id="btnXlsx" disabled>Descargar Excel (DATA + resumen)</button>
   </div>
   <details style="margin-top:12px">
     <summary>Códigos que ocupan cama (editable)</summary>
-    <p class="muted" style="margin:6px 0">Un código con número al final (D8, N9, S1…) cuenta como su código base. Bajada (BN/BD) <b>no</b> ocupa cama: la cama se usa hasta el día anterior a bajar. Quien tiene «Alojamiento en Chilloroya = SI» trabaja normal pero <b>no</b> ocupa cama en Constancia.</p>
+    <p class="muted" style="margin:6px 0">El número al final es el día de la guardia (S1, D1…D19, BN1, L1…): D12 cuenta igual que D. Bajada (BN/BD) <b>no</b> ocupa cama: la cama se usa hasta el día anterior a bajar. Quien tiene «Alojamiento en Chilloroya = SI» trabaja normal pero <b>no</b> ocupa cama en Constancia.</p>
     <div class="chips" id="codigos"></div>
   </details>
   <details style="margin-top:8px" id="detChill">
@@ -144,7 +145,7 @@ details summary{cursor:pointer;color:var(--muted)}
   <section class="kpis" id="kpis"></section>
 
   <section class="card">
-    <h2>Camas ocupadas por día y contrato <span class="muted" style="font-weight:400">(sin Chilloroya)</span></h2>
+    <h2>Camas ocupadas por día <span class="muted" style="font-weight:400">(sin Chilloroya)</span></h2>
     <p class="muted" style="margin:0 0 8px">Haz clic en un día para ver quiénes ocupan cama.</p>
     <div class="scroll"><table id="tResumen"></table></div>
   </section>
@@ -197,7 +198,7 @@ LEYENDA.forEach(([c,d,on])=>{
   chipsBox.appendChild(l);
 });
 const codigosCama=()=>new Set([...chipsBox.querySelectorAll("input:checked")].map(i=>i.value));
-["mes","anio","desde","hasta","meta"].forEach(id=>$(id).addEventListener("input",recalcular));
+["mes","anio","desde","hasta","meta","agrupar"].forEach(id=>$(id).addEventListener("input",recalcular));
 chipsBox.addEventListener("change",recalcular);
 
 // ---------- carga de archivos ----------
@@ -216,7 +217,10 @@ function enganchar(n,setter){
   drop.addEventListener("dragleave",()=>drop.classList.remove("on"));
   drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("on");leer(e.dataTransfer.files[0])});
 }
-enganchar(1,r=>actual=r); enganchar(2,r=>anterior=r);
+enganchar(1,r=>{actual=r; const sel=$("agrupar"), prev=sel.value;
+  sel.innerHTML=""; r.campos.forEach(n=>sel.add(new Option(n,n)));
+  const pref=[prev,"CONTRATO GENERAL","PROYECTO","FRENTE","AREA GENERAL","AREA"].find(n=>n&&r.campos.includes(n));
+  if(pref) sel.value=pref;}); enganchar(2,r=>anterior=r);
 
 // Busca la hoja ROSTER (o la primera con una fila de encabezado que tenga DNI y columnas de días).
 function leerRoster(wb){
@@ -231,19 +235,23 @@ function leerRoster(wb){
       if(diasCols.length<5) continue;
       const col=(...pats)=>{for(const p of pats){const i=enc.findIndex(t=>t===p);if(i>=0)return i;}
                             for(const p of pats){const i=enc.findIndex(t=>t.includes(p));if(i>=0)return i;} return -1;};
-      const c={dni:iDni,sap:col("ID SAP"),nombre:col("APELLIDOS Y NOMBRES","NOMBRE"),pos:col("POSICION"),grupo:col("GRUPO DE PERSONAL"),
+      const c={dni:iDni,sap:col("ID SAP"),nombre:col("APELLIDOS Y NOMBRES","NOMBRE"),pos:col("POSICION","PUESTO"),grupo:col("GRUPO DE PERSONAL","GRUPO DE PROYECTO"),
         genero:col("GENERO"),cg:col("CONTRATO GENERAL"),cf:col("CONTRATO FFLL"),ag:col("AREA GENERAL"),af:col("AREA FFLL"),chill:col("CHILLOROYA")};
       const v=(r,i)=>i<0?"":(r[i]??"");
+      // Columnas de texto antes de los días: sirven para agrupar (CONTRATO GENERAL, PROYECTO, FRENTE, AREA…)
+      const primerDia=Math.min(...diasCols.map(x=>x.col)), vistosEnc=new Set();
+      const campos=[]; (filas[h]||[]).forEach((t,i)=>{const n=norm(t); if(i<primerDia&&n&&i!==iDni&&i!==c.nombre&&!vistosEnc.has(n)&&!/^(ID SAP|FECHA|LINK|MODIFICADO)/.test(n)){vistosEnc.add(n);campos.push({n,i});}});
       const personas=[];
       for(let i=h+1;i<filas.length;i++){
         const r=filas[i]||[]; let dni=r[iDni]; if(dni==null||String(dni).trim()==="") continue;
         dni=String(dni).trim(); if(/^\d+$/.test(dni)&&dni.length<8) dni=dni.padStart(8,"0");
         const codigos={}; diasCols.forEach(({dia,col})=>{const x=r[col]; codigos[dia]=x==null?"":String(x).trim().toUpperCase();});
         personas.push({fila:i+1,dni,sap:String(v(r,c.sap)),nombre:String(v(r,c.nombre)),pos:String(v(r,c.pos)),grupo:String(v(r,c.grupo)),
-          genero:String(v(r,c.genero)),cg:String(v(r,c.cg)||"(sin contrato)"),cf:String(v(r,c.cf)),ag:String(v(r,c.ag)),af:String(v(r,c.af)),
-          chillL:norm(v(r,c.chill)).startsWith("SI"),codigos});
+          genero:String(v(r,c.genero)),cgOrig:String(v(r,c.cg)),cf:String(v(r,c.cf)),ag:String(v(r,c.ag)),af:String(v(r,c.af)),
+          chillL:norm(v(r,c.chill)).startsWith("SI"),codigos,
+          campos:Object.fromEntries(campos.map(k=>[k.n,String(v(r,k.i)).trim()]))});
       }
-      return {hoja:nombre,personas,diasCols,sinChill:c.chill<0,listaChill:leerListaChill(wb)};
+      return {hoja:nombre,personas,diasCols,sinChill:c.chill<0,listaChill:leerListaChill(wb),campos:campos.map(k=>k.n)};
     }
   }
   throw new Error("no encontré una hoja con columna DNI y columnas de días 01…31");
@@ -285,6 +293,7 @@ function recalcular(){
   if(!actual) return;
   const p=periodo(), cama=codigosCama(), setChill=listaChill();
   marcarChill(actual,setChill); marcarChill(anterior,setChill);
+  const grp=$("agrupar").value; actual.personas.forEach(x=>x.cg=(grp&&x.campos[grp])||"(vacío)");
   const dnisRoster=new Set(actual.personas.map(x=>x.dni));
   if(!setChill.size) $("detChill").open=true;
   $("chillEstado").textContent=`${setChill.size} en la lista`+(actual.listaChill?` (pestaña «${actual.listaChill.hoja}»)`:"")+` · ${actual.personas.filter(x=>x.chill).length} personas sin cama en total`;
@@ -294,7 +303,7 @@ function recalcular(){
   const total={}, chill={}, porDia={};
   p.dias.forEach(d=>{total[d]=0;chill[d]=0;porDia[d]=[];});
   const alertas={raros:[],vacios:[],dups:[],chillFuera:[...setChill].filter(d=>!dnisRoster.has(d)),
-    chillCorrige:actual.personas.filter(x=>x.chillLista&&!x.chillL)};
+    chillCorrige:actual.sinChill?[]:actual.personas.filter(x=>x.chillLista&&!x.chillL)};
   const cuenta={}; actual.personas.forEach(x=>cuenta[x.dni]=(cuenta[x.dni]||0)+1);
   Object.entries(cuenta).filter(([,n])=>n>1).forEach(([dni,n])=>alertas.dups.push({dni,n,nombre:actual.personas.find(x=>x.dni===dni).nombre}));
   const tieneDia=new Set(actual.diasCols.map(x=>x.dia));
@@ -313,7 +322,7 @@ function recalcular(){
   // DATA: una fila por persona por noche con cama (incluye Chilloroya marcado, como la pestaña DATA original)
   const data=[];
   for(const x of actual.personas) for(const d of p.dias){ const c=x.codigos[d];
-    if(tieneDia.has(d)&&ocupa(c)) data.push([x.dni,x.sap,x.nombre,x.pos,x.grupo,x.genero,x.cf,x.af,x.cg,x.ag,fecha(p,d),x.chill?"SI":"NO",c]); }
+    if(tieneDia.has(d)&&ocupa(c)) data.push([x.dni,x.sap,x.nombre,x.pos,x.grupo,x.genero,x.cf,x.af,x.cgOrig||x.cg,x.ag,fecha(p,d),x.chill?"SI":"NO",c]); }
   calc={p,contratos,porContrato,total,chill,porDia,alertas,data,faltanDias:p.dias.filter(d=>!tieneDia.has(d))};
   $("out").classList.remove("hidden"); $("btnXlsx").disabled=false;
   if(diaSel==null||!p.dias.includes(diaSel)) diaSel=p.dias.reduce((a,d)=>total[d]>total[a]?d:a,p.dias[0]);
@@ -321,6 +330,7 @@ function recalcular(){
 }
 
 // ---------- vistas ----------
+const titGrupo=()=>{const t=$("agrupar").value||"Grupo"; return t.charAt(0)+t.slice(1).toLowerCase();};
 function pintarKpis(){
   const {p,total,chill}=calc, vals=p.dias.map(d=>total[d]);
   const max=Math.max(...vals), dMax=p.dias[vals.indexOf(max)], sobre=p.dias.filter(d=>total[d]>p.meta);
@@ -336,7 +346,7 @@ function pintarKpis(){
 function pintarResumen(){
   const {p,contratos,porContrato,total,chill}=calc;
   const th=p.dias.map(d=>`<th class="day ${d===diaSel?"sel":""}" data-d="${d}">${fmtDia(p,d)}</th>`).join("");
-  let h=`<thead><tr><th>Contrato general</th>${th}<th>Total</th></tr></thead><tbody>`;
+  let h=`<thead><tr><th>${esc(titGrupo())}</th>${th}<th>Total</th></tr></thead><tbody>`;
   for(const k of contratos){ const s=p.dias.reduce((a,d)=>a+porContrato[k][d],0); if(!s) continue;
     h+=`<tr><td>${esc(k)}</td>${p.dias.map(d=>`<td>${porContrato[k][d]||""}</td>`).join("")}<td>${s}</td></tr>`; }
   const st=p.dias.reduce((a,d)=>a+total[d],0);
@@ -351,14 +361,15 @@ function pintarDia(){
   const {p,porDia,total}=calc, l=[...porDia[diaSel]].sort((a,b)=>a.cg.localeCompare(b.cg)||a.nombre.localeCompare(b.nombre));
   const ma=diaSel+1, sale=l.filter(x=>{const c=x.codigos[ma]; return c!==undefined&&!codigosCama().has(base(c||""));});
   $("pDia").innerHTML=`<p style="margin:0 0 8px"><b>${fmtDia(p,diaSel)}</b>: ${total[diaSel]} personas con cama (meta ${p.meta}). ${sale.length?`De ellas, <b>${sale.length}</b> ya no ocupan cama al día siguiente (bajan).`:""}</p>
-  <div class="scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Contrato general</th><th>Posición</th><th>Código</th><th>Día siguiente</th></tr></thead><tbody>
+  <div class="scroll"><table><thead><tr><th>Nombre</th><th>DNI</th><th>${esc(titGrupo())}</th><th>Posición</th><th>Código</th><th>Día siguiente</th></tr></thead><tbody>
   ${l.map(x=>`<tr><td>${esc(x.nombre)}</td><td>${esc(x.dni)}</td><td>${esc(x.cg)}</td><td>${esc(x.pos)}</td><td class="code">${esc(x.codigos[diaSel])}</td><td class="code">${esc(x.codigos[ma]??"")}</td></tr>`).join("")}
   </tbody></table></div>`;
 }
 function filaCodigos(x,p,cama,prev){
   return p.dias.map(d=>{const c=x.codigos[d]??"", o=prev?prev.codigos[d]??"":null;
-    const cls=prev&&o!==c?"cell-chg":(c&&cama.has(base(c))?"cell-bed":"");
-    return `<td class="code ${cls}" title="${prev&&o!==c?"antes: "+esc(o||"(vacío)"):""}">${esc(c)}</td>`}).join("");
+    const dif=prev&&base(o)!==base(c);
+    const cls=dif?"cell-chg":(c&&cama.has(base(c))?"cell-bed":"");
+    return `<td class="code ${cls}" title="${dif?"antes: "+esc(o||"(vacío)"):""}">${esc(c)}</td>`}).join("");
 }
 function pintarPersona(){
   const q=norm($("q").value), {p}=calc, cama=codigosCama();
@@ -375,7 +386,7 @@ function cambios(){
   const prev=new Map(anterior.personas.map(x=>[x.dni,x])), out=[];
   for(const x of actual.personas){
     const o=prev.get(x.dni);
-    const dias=p.dias.filter(d=>(x.codigos[d]??"")!==(o?o.codigos[d]??"":""));
+    const dias=p.dias.filter(d=>base(x.codigos[d]??"")!==base(o?o.codigos[d]??"":""));
     const chillCambio=o&&o.chill!==x.chill;
     if(!o||dias.length||chillCambio){
       const n=x.chill?0:p.dias.filter(d=>ocupa(x.codigos[d]??"")).length;
@@ -402,6 +413,7 @@ function pintarCambios(){
 function pintarAlertas(){
   const {p,alertas,faltanDias}=calc, a=[];
   if(actual.sinChill&&!listaChill().size) a.push(`<div class="alert bad">No encontré la columna «Alojamiento en Chilloroya» ni una lista de Chilloroya: todos se cuentan con cama.</div>`);
+  else if(actual.sinChill) a.push(`<div class="alert warn">Este Excel no trae la columna «Alojamiento en Chilloroya»: solo se descuentan los ${listaChill().size} DNI de la lista de Chilloroya.</div>`);
   else if(!listaChill().size) a.push(`<div class="alert warn">No hay lista de Chilloroya permanente (no vino la pestaña en el Excel ni hay DNI pegados). Solo se usa la columna del roster.</div>`);
   if(alertas.chillCorrige.length) a.push(`<div class="alert warn">Están en la lista de Chilloroya permanente pero el roster dice NO; se cuentan sin cama igual: ${alertas.chillCorrige.map(x=>`${esc(x.nombre)} (${esc(x.dni)})`).join(", ")}</div>`);
   if(alertas.chillFuera.length) a.push(`<div class="alert warn">DNI de la lista de Chilloroya que no están en el roster: ${alertas.chillFuera.map(esc).join(", ")}</div>`);
@@ -431,7 +443,7 @@ document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>mostrarTab(b.
 $("btnXlsx").onclick=()=>{
   const {p,contratos,porContrato,total,chill,data}=calc, wb=XLSX.utils.book_new();
   const fechas=p.dias.map(d=>fecha(p,d));
-  const res=[["CAMAS OCUPADAS POR DÍA (sin Chilloroya)"],[],["CONTRATO GENERAL",...fechas,"Total"]];
+  const res=[["CAMAS OCUPADAS POR DÍA (sin Chilloroya)"],[],[titGrupo(),...fechas,"Total"]];
   contratos.forEach(k=>{const v=p.dias.map(d=>porContrato[k][d]); const s=v.reduce((a,b)=>a+b,0); if(s) res.push([k,...v,s]);});
   res.push(["Total camas",...p.dias.map(d=>total[d]),p.dias.reduce((a,d)=>a+total[d],0)]);
   res.push(["META",...p.dias.map(()=>p.meta)]);
@@ -447,7 +459,7 @@ $("btnXlsx").onclick=()=>{
   XLSX.utils.book_append_sheet(wb,ws2,"DATA");
   const l=cambios();
   if(l){ XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([["DNI","APELLIDOS Y NOMBRES","TIPO","DELTA CAMAS",...p.dias.map(d=>fmtDia(p,d))],
-    ...l.map(c=>[c.x.dni,c.x.nombre,c.tipo,c.delta,...p.dias.map(d=>{const a=c.tipo==="Ya no está"?"":c.x.codigos[d]??"", o=c.o?c.o.codigos[d]??"":""; return a===o?a:`${o||"·"}→${a||"·"}`;})])]),"CAMBIOS"); }
+    ...l.map(c=>[c.x.dni,c.x.nombre,c.tipo,c.delta,...p.dias.map(d=>{const a=c.tipo==="Ya no está"?"":c.x.codigos[d]??"", o=c.o?c.o.codigos[d]??"":""; return base(a)===base(o)?a:`${o||"·"}→${a||"·"}`;})])]),"CAMBIOS"); }
   const hoy=new Date(), tag=`${hoy.getFullYear()}${String(hoy.getMonth()+1).padStart(2,"0")}${String(hoy.getDate()).padStart(2,"0")}_${String(hoy.getHours()).padStart(2,"0")}${String(hoy.getMinutes()).padStart(2,"0")}`;
   const nombre=`Camas_Roster_${tag}.xlsx`;
   if(descargas){

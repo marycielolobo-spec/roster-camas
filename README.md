@@ -16,4 +16,6 @@ Reglas, sacadas de la DATA manual:
   - Lista permanente de todo el mes: la pestaña «Alojamiento en Chilloroya» del Excel, o DNI pegados en la página
     (se guardan en ese navegador). Manda sobre la columna del roster.
   - Además, quien tenga SI en la columna «Alojamiento en Chilloroya» del roster.
-- Los códigos numerados (D8, D9, D10…, V1…V14) salen de arrastrar la celda en Excel: se cuentan como su código base.
+- El número al final del código es el día de la guardia (S1, D1…D19, BN1, L1…): se cuenta como su código base.
+- Acepta el Roster General (hoja ROSTER) y la descarga del sistema (hoja Roster, sin columna de Chilloroya ni de
+  contrato). «Agrupar por» elige la columna del resumen: CONTRATO GENERAL si existe; si no, PROYECTO.
